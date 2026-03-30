@@ -10,31 +10,25 @@ const errorHandler = require('./middleware/errorHandler');
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
 
-// Connect to MongoDB
-connectDB();
-
-// CORS configuration - Allow multiple origins
+// CORS configuration
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
   'http://localhost:5174',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:5173',
-  'https://taskmanagment-umber.vercel.app'
-];
+  process.env.FRONTEND_URL
+].filter(Boolean);
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
       callback(null, true);
     } else {
       console.log('Origin not allowed:', origin);
-      callback(null, true); // Allow anyway for development
+      callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
@@ -53,6 +47,25 @@ app.use((req, res, next) => {
   next();
 });
 
+// Database connection with caching for serverless
+let isConnected = false;
+const dbMiddleware = async (req, res, next) => {
+  if (!isConnected) {
+    try {
+      await connectDB();
+      isConnected = true;
+      console.log(' Database connected');
+    } catch (error) {
+      console.error(' Database connection error:', error);
+      return res.status(500).json({ error: 'Database connection failed' });
+    }
+  }
+  next();
+};
+
+// Apply database middleware to API routes
+app.use('/api', dbMiddleware);
+
 // Routes
 app.use('/api/tasks', taskRoutes);
 app.use('/api/activities', activityRoutes);
@@ -62,7 +75,8 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'OK', 
     message: 'Server is running',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    database: isConnected ? 'connected' : 'disconnected'
   });
 });
 
@@ -71,6 +85,7 @@ app.get('/', (req, res) => {
   res.json({ 
     message: 'Task Management API',
     version: '1.0.0',
+    environment: process.env.NODE_ENV || 'development',
     endpoints: {
       tasks: '/api/tasks',
       activities: '/api/activities',
@@ -84,13 +99,19 @@ app.use((req, res) => {
   res.status(404).json({ error: `Route ${req.path} not found` });
 });
 
-// Error Handler (should be last)
+// Error Handler
 app.use(errorHandler);
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📡 API available at http://localhost:${PORT}/api`);
-  console.log(`✅ Health check at http://localhost:${PORT}/health`);
-  console.log(`🌐 CORS enabled for: ${allowedOrigins.join(', ')}`);
-});
+// Only start server if not in Vercel environment
+if (process.env.VERCEL !== '1' && process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => {
+    console.log(` Server running on port ${PORT}`);
+    console.log(` API available at http://localhost:${PORT}/api`);
+    console.log(`Health check at http://localhost:${PORT}/health`);
+    console.log(` CORS enabled for: ${allowedOrigins.join(', ')}`);
+  });
+}
+
+// Export for Vercel
+module.exports = app;
