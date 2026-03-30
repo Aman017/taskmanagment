@@ -18,9 +18,10 @@ const allowedOrigins = [
   'http://localhost:5174',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:5173',
-  process.env.FRONTEND_URL
+  process.env.FRONTEND_URL,
 ].filter(Boolean);
-
+console.log('FRONTEND_URL from env:', process.env.FRONTEND_URL);
+console.log('All allowed origins:', allowedOrigins);
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
